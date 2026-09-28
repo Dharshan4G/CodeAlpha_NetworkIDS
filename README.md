@@ -1,4 +1,4 @@
-# CodeAlpha — Task 4: Network Intrusion Detection System (NIDS)
+# Network Intrusion Detection System (NIDS)
 
 A complete network-based IDS built on **Suricata**, with custom detection rules, an
 automated response mechanism, and a live dashboard to visualise attacks.
