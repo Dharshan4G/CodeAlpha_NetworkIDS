@@ -1,0 +1,104 @@
+# =====================================================================
+# CodeAlpha NIDS - Custom detection rules (Suricata / Snort compatible)
+# =====================================================================
+# Rule format:
+#   action proto src_ip src_port -> dst_ip dst_port (options)
+# $HOME_NET and $EXTERNAL_NET are defined in config/suricata-vars.yaml
+# sid = unique Signature ID (local rules use the 1000000+ range)
+# ---------------------------------------------------------------------
+
+# --- Reconnaissance -------------------------------------------------
+
+# ICMP ping sweep / host discovery
+alert icmp $EXTERNAL_NET any -> $HOME_NET any ( \
+    msg:"CODEALPHA ICMP Echo Request (possible ping sweep)"; \
+    itype:8; threshold:type both, track by_src, count 10, seconds 5; \
+    classtype:attempted-recon; sid:1000001; rev:1;)
+
+# TCP SYN port scan: many SYNs from one source in a short window
+alert tcp $EXTERNAL_NET any -> $HOME_NET any ( \
+    msg:"CODEALPHA TCP SYN port scan detected"; \
+    flags:S; threshold:type both, track by_src, count 20, seconds 5; \
+    classtype:attempted-recon; sid:1000002; rev:1;)
+
+# Nmap default TCP scan often has window size 1024 and specific flags
+alert tcp $EXTERNAL_NET any -> $HOME_NET any ( \
+    msg:"CODEALPHA Possible Nmap XMAS scan"; \
+    flags:FPU; classtype:attempted-recon; sid:1000003; rev:1;)
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET any ( \
+    msg:"CODEALPHA Possible Nmap NULL scan"; \
+    flags:0; classtype:attempted-recon; sid:1000004; rev:1;)
+
+# --- Brute force / credential attacks -------------------------------
+
+# SSH brute force: many new connections to port 22
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 ( \
+    msg:"CODEALPHA SSH brute-force attempt (many connections)"; \
+    flags:S; threshold:type both, track by_src, count 5, seconds 30; \
+    classtype:attempted-admin; sid:1000010; rev:1;)
+
+# FTP brute force
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 ( \
+    msg:"CODEALPHA FTP repeated login failures"; \
+    content:"530 "; threshold:type both, track by_src, count 5, seconds 60; \
+    classtype:attempted-admin; sid:1000011; rev:1;)
+
+# --- Web application attacks ----------------------------------------
+
+# SQL injection patterns in HTTP requests
+alert http $EXTERNAL_NET any -> $HOME_NET any ( \
+    msg:"CODEALPHA SQL injection attempt in URI"; \
+    flow:to_server,established; \
+    content:"'"; http_uri; \
+    pcre:"/(union\s+select|or\s+1=1|'--|;\s*drop\s+table)/i"; \
+    classtype:web-application-attack; sid:1000020; rev:1;)
+
+# Cross-site scripting
+alert http $EXTERNAL_NET any -> $HOME_NET any ( \
+    msg:"CODEALPHA XSS attempt (script tag in request)"; \
+    flow:to_server,established; \
+    pcre:"/<script|onerror=|javascript:/i"; http_uri; \
+    classtype:web-application-attack; sid:1000021; rev:1;)
+
+# Directory traversal
+alert http $EXTERNAL_NET any -> $HOME_NET any ( \
+    msg:"CODEALPHA Directory traversal attempt"; \
+    flow:to_server,established; \
+    content:"../"; http_uri; \
+    classtype:web-application-attack; sid:1000022; rev:1;)
+
+# Command injection
+alert http $EXTERNAL_NET any -> $HOME_NET any ( \
+    msg:"CODEALPHA OS command injection attempt"; \
+    flow:to_server,established; \
+    pcre:"/(;|\||`|\$\()\s*(id|whoami|cat|nc|bash|sh)\b/i"; http_uri; \
+    classtype:web-application-attack; sid:1000023; rev:1;)
+
+# --- Malware / C2 / exfiltration ------------------------------------
+
+# Known-bad user agent used by simple scanners/bots
+alert http $HOME_NET any -> $EXTERNAL_NET any ( \
+    msg:"CODEALPHA Suspicious user-agent (sqlmap/nikto/masscan)"; \
+    flow:to_server,established; \
+    pcre:"/(sqlmap|nikto|masscan|nmap|dirbuster)/i"; http_user_agent; \
+    classtype:trojan-activity; sid:1000030; rev:1;)
+
+# Cleartext credentials leaving the network (educational)
+alert http $HOME_NET any -> $EXTERNAL_NET any ( \
+    msg:"CODEALPHA Possible cleartext password in HTTP POST"; \
+    flow:to_server,established; content:"password="; http_client_body; \
+    classtype:policy-violation; sid:1000031; rev:1;)
+
+# DNS query to a suspicious TLD often used by malware
+alert dns $HOME_NET any -> any any ( \
+    msg:"CODEALPHA DNS query to suspicious TLD"; \
+    dns.query; pcre:"/\.(tk|top|xyz|gq|cf)$/i"; \
+    classtype:bad-unknown; sid:1000032; rev:1;)
+
+# --- Policy -----------------------------------------------------------
+
+# Outbound connection to Tor default port
+alert tcp $HOME_NET any -> $EXTERNAL_NET 9001 ( \
+    msg:"CODEALPHA Possible Tor connection"; flags:S; \
+    classtype:policy-violation; sid:1000040; rev:1;)

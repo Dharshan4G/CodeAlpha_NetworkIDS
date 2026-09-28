@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NIDS Console — CodeAlpha</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0A0E14; --panel:#121822; --panel2:#0F141D; --line:#1F2A38;
+  --txt:#C7D2E0; --dim:#6B7A90; --grn:#37D67A; --amber:#F5A623; --red:#FF4D5E;
+  --cyan:#31C4E6; --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font-family:var(--mono);font-size:14px;line-height:1.5}
+a{color:var(--cyan)}
+header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:16px 22px;border-bottom:1px solid var(--line);background:var(--panel2)}
+header h1{margin:0;font-size:18px;letter-spacing:1px;font-weight:600}
+header h1 .dot{color:var(--grn)}
+.status{margin-left:auto;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.live{display:flex;align-items:center;gap:7px;color:var(--grn)}
+.live::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--grn);
+  box-shadow:0 0 0 0 rgba(55,214,122,.6);animation:pulse 1.8s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 8px rgba(55,214,122,0)}100%{box-shadow:0 0 0 0 rgba(55,214,122,0)}}
+@media (prefers-reduced-motion:reduce){.live::before{animation:none}}
+button,label.file{background:var(--panel);color:var(--txt);border:1px solid var(--line);
+  padding:7px 14px;border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:13px}
+button:hover,label.file:hover{border-color:var(--cyan)}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+.grid{display:grid;gap:14px;padding:16px 22px;
+  grid-template-columns:repeat(4,1fr)}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px}
+.kpi .n{font-size:30px;font-weight:700;line-height:1}
+.kpi .l{color:var(--dim);font-size:12px;margin-top:6px;letter-spacing:.5px}
+.kpi.red .n{color:var(--red)} .kpi.amber .n{color:var(--amber)}
+.kpi.grn .n{color:var(--grn)} .kpi.cyan .n{color:var(--cyan)}
+
+.panels{display:grid;gap:14px;padding:0 22px 22px;grid-template-columns:1.3fr 1fr}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;min-width:0}
+.card h2{margin:0;font-size:13px;font-weight:600;letter-spacing:.5px;color:var(--dim);
+  padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel2)}
+.card .body{padding:14px 16px}
+.chart-wrap{position:relative;height:230px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--dim);font-weight:600;position:sticky;top:0;background:var(--panel2)}
+td.ip{color:var(--cyan)}
+.bar{height:6px;background:var(--red);border-radius:3px;display:inline-block;vertical-align:middle}
+
+.feed{max-height:340px;overflow:auto}
+.feed .row{display:grid;grid-template-columns:70px 74px 1fr;gap:10px;
+  padding:9px 16px;border-bottom:1px solid var(--line);align-items:start}
+.feed .t{color:var(--dim);font-size:12px}
+.sev{font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;text-align:center;height:fit-content}
+.sev.HIGH{background:rgba(255,77,94,.15);color:var(--red)}
+.sev.MEDIUM{background:rgba(245,166,35,.15);color:var(--amber)}
+.sev.LOW{background:rgba(49,196,230,.15);color:var(--cyan)}
+.feed .sig{overflow:hidden;text-overflow:ellipsis}
+.feed .meta{color:var(--dim);font-size:12px}
+.empty{padding:30px 16px;color:var(--dim);text-align:center}
+
+@media (max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.panels{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>NIDS CONSOLE<span class="dot"> ●</span> codealpha</h1>
+  <div class="status">
+    <label class="file">Load eve.json<input id="file" type="file" accept=".json,.jsonl" hidden></label>
+    <button id="demo">Load sample</button>
+    <span class="live" id="live">MONITORING</span>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="kpi red"><div class="n" id="kTotal">0</div><div class="l">TOTAL ALERTS</div></div>
+  <div class="kpi amber"><div class="n" id="kHigh">0</div><div class="l">HIGH SEVERITY</div></div>
+  <div class="kpi cyan"><div class="n" id="kSrc">0</div><div class="l">UNIQUE ATTACKERS</div></div>
+  <div class="kpi grn"><div class="n" id="kSig">0</div><div class="l">RULE TYPES FIRED</div></div>
+</div>
+
+<div class="panels">
+  <div class="card">
+    <h2>ALERTS OVER TIME</h2>
+    <div class="body"><div class="chart-wrap"><canvas id="timeChart"></canvas></div></div>
+  </div>
+  <div class="card">
+    <h2>ATTACK CATEGORIES</h2>
+    <div class="body"><div class="chart-wrap"><canvas id="catChart"></canvas></div></div>
+  </div>
+  <div class="card">
+    <h2>TOP ATTACKERS</h2>
+    <div class="body" style="padding:0"><table id="attackers"><thead>
+      <tr><th>Source IP</th><th>Alerts</th><th></th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>LIVE ALERT FEED</h2>
+    <div class="feed" id="feed"><div class="empty">Load a sample or an eve.json file to begin.</div></div>
+  </div>
+</div>
+
+<script>
+const SEV={1:"HIGH",2:"MEDIUM",3:"LOW"};
+const CAT_COLORS={"web-application-attack":"#FF4D5E","attempted-recon":"#F5A623",
+  "attempted-admin":"#FF7A45","trojan-activity":"#B45CFF","bad-unknown":"#31C4E6",
+  "policy-violation":"#37D67A"};
+let timeChart, catChart;
+
+function parseEve(text){
+  const alerts=[];
+  for(const line of text.split(/\r?\n/)){
+    const s=line.trim(); if(!s) continue;
+    let e; try{e=JSON.parse(s)}catch{continue}
+    if(e.event_type!=="alert"||!e.alert) continue;
+    alerts.push({ts:e.timestamp||"", src:e.src_ip||"?", dst:e.dest_ip||"?",
+      dport:e.dest_port||"", sev:e.alert.severity||3,
+      cat:e.alert.category||"unknown", sig:e.alert.signature||"unknown"});
+  }
+  return alerts;
+}
+
+function render(alerts){
+  const feed=document.getElementById('feed');
+  if(!alerts.length){feed.innerHTML='<div class="empty">No alert events found in that file.</div>';return;}
+
+  document.getElementById('kTotal').textContent=alerts.length;
+  document.getElementById('kHigh').textContent=alerts.filter(a=>a.sev===1).length;
+  const srcs={}, cats={}, sigs={}, buckets={};
+  alerts.forEach(a=>{
+    srcs[a.src]=(srcs[a.src]||0)+1;
+    cats[a.cat]=(cats[a.cat]||0)+1;
+    sigs[a.sig]=(sigs[a.sig]||0)+1;
+    const m=(a.ts||"").slice(11,16); if(m) buckets[m]=(buckets[m]||0)+1;
+  });
+  document.getElementById('kSrc').textContent=Object.keys(srcs).length;
+  document.getElementById('kSig').textContent=Object.keys(sigs).length;
+
+  // attackers table
+  const tb=document.querySelector('#attackers tbody'); tb.innerHTML='';
+  const top=Object.entries(srcs).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const max=top.length?top[0][1]:1;
+  top.forEach(([ip,n])=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td class="ip">${ip}</td><td>${n}</td>
+      <td><span class="bar" style="width:${Math.max(8,n/max*120)}px"></span></td>`;
+    tb.appendChild(tr);
+  });
+
+  // feed (newest first)
+  feed.innerHTML='';
+  alerts.slice().reverse().forEach(a=>{
+    const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<div class="t">${(a.ts||'').slice(11,19)}</div>
+      <div class="sev ${SEV[a.sev]}">${SEV[a.sev]}</div>
+      <div><div class="sig">${a.sig}</div>
+      <div class="meta">${a.src} → ${a.dst}:${a.dport} · ${a.cat}</div></div>`;
+    feed.appendChild(row);
+  });
+
+  // time chart
+  const labels=Object.keys(buckets).sort();
+  const data=labels.map(l=>buckets[l]);
+  const axis=getComputedStyle(document.documentElement).getPropertyValue('--dim');
+  if(timeChart) timeChart.destroy();
+  timeChart=new Chart(document.getElementById('timeChart'),{
+    type:'line',
+    data:{labels,datasets:[{data,borderColor:'#FF4D5E',backgroundColor:'rgba(255,77,94,.12)',
+      fill:true,tension:.3,pointRadius:2}]},
+    options:{plugins:{legend:{display:false}},maintainAspectRatio:false,
+      scales:{x:{ticks:{color:axis,maxTicksLimit:8},grid:{color:'#1F2A38'}},
+              y:{ticks:{color:axis},grid:{color:'#1F2A38'},beginAtZero:true}}}
+  });
+
+  // category doughnut
+  const cl=Object.keys(cats), cv=cl.map(c=>cats[c]);
+  if(catChart) catChart.destroy();
+  catChart=new Chart(document.getElementById('catChart'),{
+    type:'doughnut',
+    data:{labels:cl,datasets:[{data:cv,
+      backgroundColor:cl.map(c=>CAT_COLORS[c]||'#6B7A90'),borderColor:'#121822',borderWidth:2}]},
+    options:{maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{color:axis,boxWidth:12,font:{size:11}}}}}
+  });
+}
+
+document.getElementById('file').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>render(parseEve(r.result)); r.readAsText(f);
+});
+
+// sample data, embedded so the dashboard works with no server
+const SAMPLE=`{"timestamp": "2026-09-25T09:00:11+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 5771, "dest_ip": "192.168.1.10", "dest_port": 22, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000020, "rev": 1, "signature": "CODEALPHA SQL injection attempt in URI", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:00:29+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 60642, "dest_ip": "192.168.1.10", "dest_port": 22, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:00:46+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 28429, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000021, "rev": 1, "signature": "CODEALPHA XSS attempt (script tag in request)", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:00:49+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 4897, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000021, "rev": 1, "signature": "CODEALPHA XSS attempt (script tag in request)", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:01:08+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 63133, "dest_ip": "192.168.1.10", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:01:10+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 37505, "dest_ip": "192.168.1.10", "dest_port": 22, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000001, "rev": 1, "signature": "CODEALPHA ICMP Echo Request (possible ping sweep)", "category": "attempted-recon", "severity": 3}}
+{"timestamp": "2026-09-25T09:01:15+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 8743, "dest_ip": "192.168.1.10", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000022, "rev": 1, "signature": "CODEALPHA Directory traversal attempt", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:01:34+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 7777, "dest_ip": "192.168.1.10", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000022, "rev": 1, "signature": "CODEALPHA Directory traversal attempt", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:01:53+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 47692, "dest_ip": "192.168.1.10", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000021, "rev": 1, "signature": "CODEALPHA XSS attempt (script tag in request)", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:01:56+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 45614, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000002, "rev": 1, "signature": "CODEALPHA TCP SYN port scan detected", "category": "attempted-recon", "severity": 1}}
+{"timestamp": "2026-09-25T09:02:14+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 39399, "dest_ip": "192.168.1.20", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000001, "rev": 1, "signature": "CODEALPHA ICMP Echo Request (possible ping sweep)", "category": "attempted-recon", "severity": 3}}
+{"timestamp": "2026-09-25T09:02:29+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 46833, "dest_ip": "192.168.1.10", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000023, "rev": 1, "signature": "CODEALPHA OS command injection attempt", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:02:54+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 35443, "dest_ip": "192.168.1.10", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000021, "rev": 1, "signature": "CODEALPHA XSS attempt (script tag in request)", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:03:10+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 40932, "dest_ip": "192.168.1.20", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000023, "rev": 1, "signature": "CODEALPHA OS command injection attempt", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:03:13+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 50643, "dest_ip": "192.168.1.20", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:03:24+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 64070, "dest_ip": "192.168.1.20", "dest_port": 22, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000020, "rev": 1, "signature": "CODEALPHA SQL injection attempt in URI", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:03:46+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 52738, "dest_ip": "192.168.1.10", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:03:57+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 33574, "dest_ip": "192.168.1.20", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000023, "rev": 1, "signature": "CODEALPHA OS command injection attempt", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:04:16+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 32094, "dest_ip": "192.168.1.10", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000030, "rev": 1, "signature": "CODEALPHA Suspicious user-agent (sqlmap/nikto/masscan)", "category": "trojan-activity", "severity": 1}}
+{"timestamp": "2026-09-25T09:04:39+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 43434, "dest_ip": "192.168.1.10", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:04:58+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 59157, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000030, "rev": 1, "signature": "CODEALPHA Suspicious user-agent (sqlmap/nikto/masscan)", "category": "trojan-activity", "severity": 1}}
+{"timestamp": "2026-09-25T09:05:20+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 12037, "dest_ip": "192.168.1.20", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000023, "rev": 1, "signature": "CODEALPHA OS command injection attempt", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:05:40+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 51370, "dest_ip": "192.168.1.10", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:05:50+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 26645, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000020, "rev": 1, "signature": "CODEALPHA SQL injection attempt in URI", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:06:06+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 37032, "dest_ip": "192.168.1.20", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:06:15+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 19270, "dest_ip": "192.168.1.20", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000020, "rev": 1, "signature": "CODEALPHA SQL injection attempt in URI", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:06:38+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 63789, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000001, "rev": 1, "signature": "CODEALPHA ICMP Echo Request (possible ping sweep)", "category": "attempted-recon", "severity": 3}}
+{"timestamp": "2026-09-25T09:06:46+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 16225, "dest_ip": "192.168.1.10", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000020, "rev": 1, "signature": "CODEALPHA SQL injection attempt in URI", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:07:08+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 12974, "dest_ip": "192.168.1.20", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000021, "rev": 1, "signature": "CODEALPHA XSS attempt (script tag in request)", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:07:17+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 36058, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000022, "rev": 1, "signature": "CODEALPHA Directory traversal attempt", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:07:29+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 63297, "dest_ip": "192.168.1.10", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000023, "rev": 1, "signature": "CODEALPHA OS command injection attempt", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:07:49+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 26738, "dest_ip": "192.168.1.10", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000002, "rev": 1, "signature": "CODEALPHA TCP SYN port scan detected", "category": "attempted-recon", "severity": 1}}
+{"timestamp": "2026-09-25T09:08:02+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 42592, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000001, "rev": 1, "signature": "CODEALPHA ICMP Echo Request (possible ping sweep)", "category": "attempted-recon", "severity": 3}}
+{"timestamp": "2026-09-25T09:08:15+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 29900, "dest_ip": "192.168.1.10", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000002, "rev": 1, "signature": "CODEALPHA TCP SYN port scan detected", "category": "attempted-recon", "severity": 1}}
+{"timestamp": "2026-09-25T09:08:21+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 7733, "dest_ip": "192.168.1.10", "dest_port": 22, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:08:22+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 41245, "dest_ip": "192.168.1.10", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000020, "rev": 1, "signature": "CODEALPHA SQL injection attempt in URI", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:08:23+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 25680, "dest_ip": "192.168.1.10", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:08:28+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 32097, "dest_ip": "192.168.1.10", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000022, "rev": 1, "signature": "CODEALPHA Directory traversal attempt", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:08:32+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 32507, "dest_ip": "192.168.1.20", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:08:48+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 50154, "dest_ip": "192.168.1.10", "dest_port": 22, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000022, "rev": 1, "signature": "CODEALPHA Directory traversal attempt", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:08:59+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 34862, "dest_ip": "192.168.1.10", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000022, "rev": 1, "signature": "CODEALPHA Directory traversal attempt", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:09:00+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 46248, "dest_ip": "192.168.1.20", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000021, "rev": 1, "signature": "CODEALPHA XSS attempt (script tag in request)", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:09:18+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 65151, "dest_ip": "192.168.1.10", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000002, "rev": 1, "signature": "CODEALPHA TCP SYN port scan detected", "category": "attempted-recon", "severity": 1}}
+{"timestamp": "2026-09-25T09:09:39+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 25056, "dest_ip": "192.168.1.20", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:09:45+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 36516, "dest_ip": "192.168.1.10", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000023, "rev": 1, "signature": "CODEALPHA OS command injection attempt", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:10:10+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 41212, "dest_ip": "192.168.1.10", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000032, "rev": 1, "signature": "CODEALPHA DNS query to suspicious TLD", "category": "bad-unknown", "severity": 3}}
+{"timestamp": "2026-09-25T09:10:35+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 49512, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000021, "rev": 1, "signature": "CODEALPHA XSS attempt (script tag in request)", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:10:43+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 48931, "dest_ip": "192.168.1.20", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000021, "rev": 1, "signature": "CODEALPHA XSS attempt (script tag in request)", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:10:44+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 18009, "dest_ip": "192.168.1.20", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000002, "rev": 1, "signature": "CODEALPHA TCP SYN port scan detected", "category": "attempted-recon", "severity": 1}}
+{"timestamp": "2026-09-25T09:10:51+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 63610, "dest_ip": "192.168.1.10", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000023, "rev": 1, "signature": "CODEALPHA OS command injection attempt", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:11:03+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 31831, "dest_ip": "192.168.1.10", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:11:10+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 60026, "dest_ip": "192.168.1.20", "dest_port": 53, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000023, "rev": 1, "signature": "CODEALPHA OS command injection attempt", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:11:30+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 53429, "dest_ip": "192.168.1.10", "dest_port": 443, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000002, "rev": 1, "signature": "CODEALPHA TCP SYN port scan detected", "category": "attempted-recon", "severity": 1}}
+{"timestamp": "2026-09-25T09:11:51+0000", "event_type": "alert", "src_ip": "91.201.66.4", "src_port": 60647, "dest_ip": "192.168.1.10", "dest_port": 22, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:12:04+0000", "event_type": "alert", "src_ip": "45.76.12.9", "src_port": 52740, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000021, "rev": 1, "signature": "CODEALPHA XSS attempt (script tag in request)", "category": "web-application-attack", "severity": 2}}
+{"timestamp": "2026-09-25T09:12:25+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 31377, "dest_ip": "192.168.1.10", "dest_port": 8080, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000023, "rev": 1, "signature": "CODEALPHA OS command injection attempt", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:12:38+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 9349, "dest_ip": "192.168.1.10", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000010, "rev": 1, "signature": "CODEALPHA SSH brute-force attempt (many connections)", "category": "attempted-admin", "severity": 1}}
+{"timestamp": "2026-09-25T09:12:39+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 41104, "dest_ip": "192.168.1.20", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000020, "rev": 1, "signature": "CODEALPHA SQL injection attempt in URI", "category": "web-application-attack", "severity": 1}}
+{"timestamp": "2026-09-25T09:12:59+0000", "event_type": "alert", "src_ip": "198.51.100.23", "src_port": 36980, "dest_ip": "192.168.1.20", "dest_port": 80, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000030, "rev": 1, "signature": "CODEALPHA Suspicious user-agent (sqlmap/nikto/masscan)", "category": "trojan-activity", "severity": 1}}
+{"timestamp": "2026-09-25T09:13:17+0000", "event_type": "alert", "src_ip": "203.0.113.7", "src_port": 35534, "dest_ip": "192.168.1.10", "dest_port": 22, "proto": "TCP", "alert": {"action": "allowed", "signature_id": 1000020, "rev": 1, "signature": "CODEALPHA SQL injection attempt in URI", "category": "web-application-attack", "severity": 1}}`;
+document.getElementById('demo').addEventListener('click',()=>render(parseEve(SAMPLE)));
+</script>
+</body>
+</html>
